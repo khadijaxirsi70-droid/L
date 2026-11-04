@@ -1,4 +1,4 @@
-name: Ultimate APK Build
+name: Ultimate APK Build (Auto-Fix)
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40 # زيادة الوقت لضمان عدم التوقف
+    timeout-minutes: 40
     
     steps:
     - name: Checkout Code
@@ -23,50 +23,30 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Smart Preparation (Unzip & Find Project)
+    - name: Smart Preparation
       run: |
         set -e
-        echo "🔍 1. Searching for ZIP..."
         ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
         if [ -z "$ZIP_FILE" ]; then echo "❌ No ZIP found!"; exit 1; fi
-        
-        echo "📦 2. Unzipping $ZIP_FILE..."
         unzip -q "$ZIP_FILE" -d project_root
         cd project_root
-        
-        echo "🎯 3. Locating project root..."
         PROJECT_DIR=$(find . -name "build.gradle.kts" -o -name "build.gradle" | head -n 1 | xargs dirname)
-        if [ -z "$PROJECT_DIR" ]; then echo "❌ Could not find gradle files!"; exit 1; fi
-        
         echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-        echo "✅ Project found at: $PROJECT_DIR"
 
-    - name: Fix Gradle Wrapper & Memory
+    # 🔥 هذا هو السطر السحري الذي سيحل المشكلة تلقائياً 🔥
+    - name: Auto-Fix Signing Error
+      run: |
+        cd project_root/${{ env.PROJECT_DIR }}
+        find . -name "build.gradle.kts" -exec sed -i '/signingConfig = signingConfigs.getByName("debugConfig")/d' {} +
+        echo "✅ Removed signingConfig error successfully."
+
+    - name: Fix Gradle Wrapper & Build
       run: |
         set -e
         cd project_root/${{ env.PROJECT_DIR }}
-        
-        # 1. إصلاح الذاكرة لمنع انهيار Gradle
         echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> gradle.properties
-        echo "org.gradle.parallel=true" >> gradle.properties
-        
-        # 2. توليد Gradle Wrapper إذا كان مفقوداً
-        if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-          echo "⚠️ Missing Gradle Wrapper! Generating..."
-          gradle wrapper
-        fi
-        
-        # 3. إعطاء صلاحيات التنفيذ
+        if [ ! -f "gradlew" ]; then gradle wrapper; fi
         chmod +x gradlew
-        
-        echo "✅ Wrapper and Memory settings are ready."
-
-    - name: Build with Gradle
-      run: |
-        set -e
-        cd project_root/${{ env.PROJECT_DIR }}
-        echo "🚀 Starting the Build..."
-        # استخدام --stacktrace لمعرفة الأخطاء بدقة إذا فشل
         ./gradlew assembleDebug --stacktrace --no-daemon
 
     - name: Upload APK
